@@ -71,6 +71,17 @@ def deactivate_user(user_id: str, current_user: User = Depends(get_current_user)
     if user is None:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # SEGURIDAD: Solo global_admin puede desactivar a otro global_admin
+    if user.role == UserRole.GLOBAL_ADMIN and current_user.role != UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Only global admin can deactivate global admin users")
+    
+    # SEGURIDAD: Un global_admin no puede desactivarse a sí mismo
+    if user.id == current_user.id and current_user.role == UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Global admin cannot deactivate themselves")
+    
     setattr(user, 'active', False)
     db.commit()
     db.close()
@@ -85,6 +96,12 @@ def activate_user(user_id: str, current_user: User = Depends(get_current_user)):
     if user is None:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # SEGURIDAD: Solo global_admin puede activar a otro global_admin
+    if user.role == UserRole.GLOBAL_ADMIN and current_user.role != UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Only global admin can activate global admin users")
+    
     setattr(user, 'active', True)
     db.commit()
     db.close()
@@ -97,6 +114,12 @@ def update_user(user_id: str, data: UserUpdate = Body(...), current_user: User =
     if user is None:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # SEGURIDAD: Solo global_admin puede modificar a otro global_admin
+    if user.role == UserRole.GLOBAL_ADMIN and current_user.role != UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Only global admin can modify global admin users")
+    
     # Permisos
     if current_user.role == UserRole.GLOBAL_ADMIN:
         pass  # Puede editar cualquier campo
@@ -136,6 +159,17 @@ def delete_user(user_id: str, current_user: User = Depends(get_current_user)):
     if user is None:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # SEGURIDAD: Solo global_admin puede eliminar a otro global_admin
+    if user.role == UserRole.GLOBAL_ADMIN and current_user.role != UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Only global admin can delete global admin users")
+    
+    # SEGURIDAD: Un global_admin no puede eliminarse a sí mismo
+    if user.id == current_user.id and current_user.role == UserRole.GLOBAL_ADMIN:
+        db.close()
+        raise HTTPException(status_code=403, detail="Global admin cannot delete themselves")
+    
     # Permitir solo si es global_admin o admin de la misma cervecería
     if current_user.role == UserRole.GLOBAL_ADMIN:
         pass

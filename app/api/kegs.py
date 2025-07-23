@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.db.database import SessionLocal
-from app.db.models import Keg, KegType, KegConnector, KegState, User, UserRole, KegStateHistory
+from app.db.models import Keg, KegType, KegConnector, KegState, User, UserRole, KegStateHistory, Brewery
 from app.core.auth import get_current_user
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -18,6 +18,7 @@ class KegOut(BaseModel):
     beer_type: str
     state: KegState
     brewery_id: str
+    brewery_name: Optional[str] = None
     location: Optional[str] = None
     user_email: Optional[str] = None
     class Config:
@@ -44,16 +45,34 @@ def list_kegs(
     state: Optional[KegState] = None
 ):
     db = SessionLocal()
-    query = db.query(Keg)
+    query = db.query(Keg).join(Brewery, Keg.brewery_id == Brewery.id)
     if brewery_id:
         query = query.filter(Keg.brewery_id == brewery_id)
-    # if user_id:
-    #     query = query.filter(Keg.user_id == user_id)
     if state:
         query = query.filter(Keg.state == state)
     kegs = query.offset(skip).limit(limit).all()
+    
+    # Crear respuesta con brewery_name
+    result = []
+    for keg in kegs:
+        keg_dict = {
+            "id": keg.id,
+            "name": keg.name,
+            "type": keg.type,
+            "connector": keg.connector,
+            "capacity": keg.capacity,
+            "current_content": keg.current_content,
+            "beer_type": keg.beer_type,
+            "state": keg.state,
+            "brewery_id": keg.brewery_id,
+            "brewery_name": keg.brewery.name if keg.brewery else None,
+            "location": keg.location,
+            "user_email": None
+        }
+        result.append(keg_dict)
+    
     db.close()
-    return kegs
+    return result
 
 @router.post("/", response_model=KegOut)
 def create_keg(data: KegCreate, current_user: User = Depends(get_current_user)):
@@ -65,12 +84,30 @@ def create_keg(data: KegCreate, current_user: User = Depends(get_current_user)):
     try:
         db.commit()
         db.refresh(keg)
+        
+        # Obtener brewery_name para la respuesta
+        brewery = db.query(Brewery).filter(Brewery.id == keg.brewery_id).first()
+        keg_response = {
+            "id": keg.id,
+            "name": keg.name,
+            "type": keg.type,
+            "connector": keg.connector,
+            "capacity": keg.capacity,
+            "current_content": keg.current_content,
+            "beer_type": keg.beer_type,
+            "state": keg.state,
+            "brewery_id": keg.brewery_id,
+            "brewery_name": brewery.name if brewery else None,
+            "location": keg.location,
+            "user_email": None
+        }
+        
     except IntegrityError:
         db.rollback()
         db.close()
         raise HTTPException(status_code=400, detail="Keg already exists")
     db.close()
-    return keg
+    return keg_response
 
 @router.patch("/{keg_id}", response_model=KegOut)
 def update_keg(keg_id: str, data: KegCreate, current_user: User = Depends(get_current_user)):
@@ -98,9 +135,26 @@ def update_keg(keg_id: str, data: KegCreate, current_user: User = Depends(get_cu
         )
         db.add(history)
         db.commit()
-    keg_out = KegOut.from_orm(keg)
+    
+    # Obtener brewery_name para la respuesta
+    brewery = db.query(Brewery).filter(Brewery.id == keg.brewery_id).first()
+    keg_response = {
+        "id": keg.id,
+        "name": keg.name,
+        "type": keg.type,
+        "connector": keg.connector,
+        "capacity": keg.capacity,
+        "current_content": keg.current_content,
+        "beer_type": keg.beer_type,
+        "state": keg.state,
+        "brewery_id": keg.brewery_id,
+        "brewery_name": brewery.name if brewery else None,
+        "location": keg.location,
+        "user_email": None
+    }
+    
     db.close()
-    return keg_out
+    return keg_response
 
 @router.get("/{keg_id}/history")
 def get_keg_history(keg_id: str, current_user: User = Depends(get_current_user)):
@@ -135,20 +189,35 @@ def delete_keg(keg_id: str, current_user: User = Depends(get_current_user)):
 @router.get("/{keg_id}", response_model=KegOut)
 def get_keg(keg_id: str, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
-    keg = db.query(Keg).filter(Keg.id == keg_id).first()
+    keg = db.query(Keg).join(Brewery, Keg.brewery_id == Brewery.id).filter(Keg.id == keg_id).first()
     if not keg:
         db.close()
         raise HTTPException(status_code=404, detail="Keg not found")
     if current_user.role == UserRole.USER and keg.brewery_id != current_user.brewery_id:
         db.close()
         raise HTTPException(status_code=403, detail="No tienes acceso a este barril")
+    
     # Obtener email del usuario asignado si existe
     user_email = None
     if hasattr(keg, 'user_id') and keg.user_id:
         user = db.query(User).filter(User.id == keg.user_id).first()
         if user:
             user_email = user.email
-    keg_out = KegOut.from_orm(keg)
-    keg_out.user_email = user_email
+    
+    keg_response = {
+        "id": keg.id,
+        "name": keg.name,
+        "type": keg.type,
+        "connector": keg.connector,
+        "capacity": keg.capacity,
+        "current_content": keg.current_content,
+        "beer_type": keg.beer_type,
+        "state": keg.state,
+        "brewery_id": keg.brewery_id,
+        "brewery_name": keg.brewery.name if keg.brewery else None,
+        "location": keg.location,
+        "user_email": user_email
+    }
+    
     db.close()
-    return keg_out 
+    return keg_response 
